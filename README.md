@@ -6,6 +6,8 @@ An interactive image-denoising UI for the W1 "Image Denoising" lecture and Cours
 
 Open `index.html` in a browser. No build step or server is required.
 
+Live page: <https://ellengong331.github.io/roas5800-denoising-workbench/>
+
 ## Included Filters
 
 - Mean filter
