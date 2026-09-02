@@ -362,9 +362,13 @@ function drawDataToCanvas(canvas, data, width, height) {
   ctx.putImageData(new ImageData(data, width, height), 0, 0);
 }
 
-function updateMeta() {
+function updateNoiseMeta() {
   const noiseLabel = state.noiseMode === "gaussian" ? `σ = ${state.noiseSigma}` : `${state.noiseDensity}%`;
   dom.noisyMeta.textContent = noiseLabel;
+}
+
+function updateMeta() {
+  updateNoiseMeta();
   dom.resultMeta.textContent = `${ALGORITHMS[state.algorithm].name} filter`;
   dom.activeLabel.textContent = `${ALGORITHMS[state.algorithm].name} filter`;
   dom.imageInfo.textContent = `${state.sourceName} · ${state.width}×${state.height}`;
@@ -434,6 +438,7 @@ async function applyNoise() {
   drawDataToCanvas(dom.noisyCanvas, state.noisy, state.width, state.height);
   dom.noisyPsnr.textContent = `${psnr(clean, state.noisy, state.width, state.height).toFixed(2)} dB`;
   dom.resultPsnr.textContent = "—";
+  updateNoiseMeta();
   updateMetrics();
 }
 
@@ -919,10 +924,12 @@ function bindEvents() {
   dom.noiseSigma.addEventListener("input", () => {
     state.noiseSigma = Number(dom.noiseSigma.value);
     dom.noiseSigmaValue.textContent = numberText(state.noiseSigma, 1);
+    updateNoiseMeta();
   });
   dom.noiseDensity.addEventListener("input", () => {
     state.noiseDensity = Number(dom.noiseDensity.value);
     dom.noiseDensityValue.textContent = `${state.noiseDensity}%`;
+    updateNoiseMeta();
   });
 
   dom.noiseButtons.forEach((button) => {
@@ -933,6 +940,7 @@ function bindEvents() {
       dom.densityRow = dom.densityRow || $("densityRow");
       dom.sigmaRow.hidden = state.noiseMode !== "gaussian";
       dom.densityRow.hidden = state.noiseMode !== "saltPepper";
+      updateNoiseMeta();
     });
   });
 
