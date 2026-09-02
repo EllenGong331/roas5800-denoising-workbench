@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Denoising Workbench</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <div class="brand-text">
+          <h1>Denoising Workbench</h1>
+          <p>ROAS 5800 &middot; W1 Image Denoising</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="run-chip" id="statusChip">
+          <span class="status-dot"></span>
+          <span id="statusText">Ready</span>
+        </div>
+        <button class="btn btn-secondary" id="exportButton" type="button">Export result</button>
+        <button class="btn btn-primary" id="restoreButton" type="button">Restore</button>
+      </div>
+    </header>
+
+    <main class="workbench">
+      <aside class="sidebar" aria-label="Controls">
+        <section class="panel-section">
+          <div class="section-heading">
+            <span class="section-index">01</span>
+            <h2>Source</h2>
+          </div>
+          <div class="demo-row">
+            <button class="demo-button" data-source="room" type="button" aria-label="Room demo">
+              <canvas id="thumbRoom" width="96" height="64"></canvas>
+              <span>Room</span>
+            </button>
+            <button class="demo-button" data-source="city" type="button" aria-label="City demo">
+              <canvas id="thumbCity" width="96" height="64"></canvas>
+              <span>City</span>
+            </button>
+          </div>
+          <label class="upload-zone" id="uploadZone" for="fileInput">
+            <input id="fileInput" type="file" accept="image/*" hidden>
+            <span class="upload-icon" aria-hidden="true"></span>
+            <strong>Upload image</strong>
+            <small>PNG, JPG or WebP</small>
+          </label>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-heading">
+            <span class="section-index">02</span>
+            <h2>Noise</h2>
+          </div>
+          <div class="segmented" id="noiseMode" role="group" aria-label="Noise model">
+            <button class="segmented-button active" type="button" data-noise="gaussian">Gaussian</button>
+            <button class="segmented-button" type="button" data-noise="saltPepper">Salt &amp; Pepper</button>
+          </div>
+          <div class="control-stack">
+            <label class="control-row" id="sigmaRow">
+              <span>Sigma</span>
+              <input id="noiseSigma" type="range" min="1" max="50" step="1" value="16">
+              <output id="noiseSigmaValue" for="noiseSigma">16</output>
+            </label>
+            <label class="control-row" id="densityRow" hidden>
+              <span>Density</span>
+              <input id="noiseDensity" type="range" min="1" max="20" step="1" value="6">
+              <output id="noiseDensityValue" for="noiseDensity">6</output>
+            </label>
+          </div>
+          <button class="btn btn-secondary full-button" id="noiseButton" type="button">Apply noise</button>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-heading">
+            <span class="section-index">03</span>
+            <h2>Filter</h2>
+          </div>
+          <div class="algo-grid" id="algoList" role="radiogroup" aria-label="Denoising algorithm">
+            <label class="algo-option">
+              <input type="radio" name="algorithm" value="mean">
+              <span class="algo-name">Mean</span>
+              <span class="algo-code">M</span>
+            </label>
+            <label class="algo-option">
+              <input type="radio" name="algorithm" value="gaussian" checked>
+              <span class="algo-name">Gaussian</span>
+              <span class="algo-code">G</span>
+            </label>
+            <label class="algo-option">
+              <input type="radio" name="algorithm" value="median">
+              <span class="algo-name">Median</span>
+              <span class="algo-code">Md</span>
+            </label>
+            <label class="algo-option">
+              <input type="radio" name="algorithm" value="bilateral">
+              <span class="algo-name">Bilateral</span>
+              <span class="algo-code">B</span>
+            </label>
+            <label class="algo-option">
+              <input type="radio" name="algorithm" value="nlm">
+              <span class="algo-name">NLM</span>
+              <span class="algo-code">N</span>
+            </label>
+          </div>
+          <div class="control-stack" id="paramPanel"></div>
+          <div class="action-row">
+            <button class="btn btn-secondary" id="resetButton" type="button">Reset result</button>
+            <button class="btn btn-primary" id="runButton" type="button">Run filter</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="viewer" aria-label="Image comparison">
+        <div class="viewer-header">
+          <div class="viewer-heading">
+            <div class="eyebrow">W1 / Denoising</div>
+            <div id="activeLabel">Gaussian filter</div>
+          </div>
+          <div class="viewer-actions">
+            <div class="view-switch" id="viewSwitch" role="group" aria-label="View mode">
+              <button class="active" type="button" data-view="side">Side by side</button>
+              <button type="button" data-view="metrics">Metrics</button>
+            </div>
+            <label class="zoom-control">
+              <span id="zoomValue">100%</span>
+              <input id="zoomRange" type="range" min="60" max="160" step="5" value="100">
+            </label>
+          </div>
+        </div>
+
+        <div class="stage-wrap">
+          <div class="viewer-stage" id="viewerStage">
+            <figure class="image-panel" id="sourcePanel">
+              <figcaption class="panel-header">
+                <span class="panel-name">Reference</span>
+                <span class="panel-meta" id="sourceMeta">512&times;512</span>
+              </figcaption>
+              <div class="canvas-box">
+                <canvas id="sourceCanvas"></canvas>
+              </div>
+              <div class="panel-footer">
+                <span>Baseline</span>
+                <output id="sourcePsnr">0.00 dB</output>
+              </div>
+            </figure>
+
+            <figure class="image-panel noisy-panel" id="noisyPanel">
+              <figcaption class="panel-header">
+                <span class="panel-name">Noisy</span>
+                <span class="panel-meta" id="noisyMeta">&sigma; = 16</span>
+              </figcaption>
+              <div class="canvas-box">
+                <canvas id="noisyCanvas"></canvas>
+              </div>
+              <div class="panel-footer">
+                <span>PSNR vs clean</span>
+                <output id="noisyPsnr">0.00 dB</output>
+              </div>
+            </figure>
+
+            <figure class="image-panel result-panel" id="resultPanel">
+              <figcaption class="panel-header">
+                <span class="panel-name">Restored</span>
+                <span class="panel-meta" id="resultMeta">Gaussian &middot; 3px</span>
+              </figcaption>
+              <div class="canvas-box">
+                <canvas id="resultCanvas"></canvas>
+              </div>
+              <div class="panel-footer">
+                <span>PSNR vs clean</span>
+                <output id="resultPsnr">0.00 dB</output>
+              </div>
+            </figure>
+          </div>
+          <div class="metrics-view" id="metricsView" hidden>
+            <section class="metric-panel">
+              <div class="metric-panel-title">Quality</div>
+              <div class="metric-grid">
+                <div class="metric-item">
+                  <span class="metric-label">Input PSNR</span>
+                  <strong id="metricInputPsnr">—</strong>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Output PSNR</span>
+                  <strong id="metricOutputPsnr">—</strong>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Improvement</span>
+                  <strong id="metricImprovement">—</strong>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Runtime</span>
+                  <strong id="metricRuntime">—</strong>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Noise sigma</span>
+                  <strong id="metricSigma">—</strong>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">RMSE</span>
+                  <strong id="metricRmse">—</strong>
+                </div>
+              </div>
+            </section>
+            <section class="metric-panel">
+              <div class="metric-panel-title">Luminance histogram</div>
+              <canvas id="histogramCanvas" width="560" height="150"></canvas>
+              <div class="legend-row">
+                <span><i class="legend-dot noisy"></i>Noisy</span>
+                <span><i class="legend-dot result"></i>Restored</span>
+                <span><i class="legend-dot clean"></i>Clean</span>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div class="viewer-footer">
+          <span id="imageInfo">Demo room &middot; 512&times;512</span>
+          <span id="stateInfo">Ready</span>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
