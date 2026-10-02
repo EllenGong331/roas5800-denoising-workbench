@@ -8,6 +8,8 @@ Open `index.html` in a browser. No build step or server is required.
 
 Live page: <https://ellengong331.github.io/roas5800-denoising-workbench/>
 
+After selecting a filter, use **Run filter** to apply it. Filter selection only changes the algorithm and its parameters.
+
 © 2026 EllenGong331. All rights reserved. Original coursework; see
 `LICENSE` and `ORIGINALITY_DECLARATION.md`.
 
@@ -18,6 +20,10 @@ Live page: <https://ellengong331.github.io/roas5800-denoising-workbench/>
 - Median filter
 - Bilateral filter
 - Non-local means (NLM)
+- Guided image filter
+- Weighted least squares (WLS) smoothing
+- L0 gradient-minimization smoothing
+- Rolling guidance filter
 
 ## Workflow
 
