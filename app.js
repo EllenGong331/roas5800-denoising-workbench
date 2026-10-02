@@ -35,6 +35,36 @@ const ALGORITHMS = {
       searchRadius: { label: "Search radius", min: 1, max: 5, step: 1, value: 3 },
       h: { label: "h", min: 5, max: 80, step: 1, value: 28 }
     }
+  },
+  guided: {
+    name: "Guided",
+    params: {
+      radius: { label: "Radius", min: 1, max: 8, step: 1, value: 3 },
+      epsilon: { label: "Epsilon", min: 0.001, max: 0.2, step: 0.001, value: 0.02 }
+    }
+  },
+  wls: {
+    name: "WLS",
+    params: {
+      lambda: { label: "Lambda", min: 0.1, max: 4, step: 0.1, value: 1.2 },
+      alpha: { label: "Alpha", min: 0.8, max: 2, step: 0.1, value: 1.2 },
+      iterations: { label: "Iterations", min: 1, max: 8, step: 1, value: 4 }
+    }
+  },
+  l0: {
+    name: "L0 smooth",
+    params: {
+      lambda: { label: "Lambda", min: 0.001, max: 0.05, step: 0.001, value: 0.01 },
+      iterations: { label: "Iterations", min: 1, max: 8, step: 1, value: 4 }
+    }
+  },
+  rolling: {
+    name: "Rolling guidance",
+    params: {
+      sigmaSpatial: { label: "Spatial sigma", min: 0.5, max: 12, step: 0.5, value: 3 },
+      sigmaRange: { label: "Range sigma", min: 1, max: 80, step: 1, value: 18 },
+      iterations: { label: "Iterations", min: 1, max: 5, step: 1, value: 3 }
+    }
   }
 };
 
@@ -109,7 +139,9 @@ function clampByte(value) {
 }
 
 function formatStep(step) {
-  return Number.isInteger(step) ? 0 : 1;
+  if (Number.isInteger(step)) return 0;
+  const text = String(step);
+  return text.includes(".") ? text.split(".")[1].length : 1;
 }
 
 function numberText(value, step) {
@@ -574,6 +606,18 @@ async function runAlgorithm(data, width, height, algorithm, params, cancelled, o
   if (algorithm === "nlm") {
     return applyNlm(data, width, height, params.patchRadius, params.searchRadius, params.h, cancelled, onProgress);
   }
+  if (algorithm === "guided") {
+    return applyGuided(data, width, height, params.radius, params.epsilon, cancelled, onProgress);
+  }
+  if (algorithm === "wls") {
+    return applyWls(data, width, height, params.lambda, params.alpha, params.iterations, cancelled, onProgress);
+  }
+  if (algorithm === "l0") {
+    return applyL0(data, width, height, params.lambda, params.iterations, cancelled, onProgress);
+  }
+  if (algorithm === "rolling") {
+    return applyRollingGuidance(data, width, height, params.sigmaSpatial, params.sigmaRange, params.iterations, cancelled, onProgress);
+  }
   return null;
 }
 
@@ -686,13 +730,15 @@ async function applyMedian(data, width, height, radius, cancelled, onProgress) {
   return out;
 }
 
-async function applyBilateral(data, width, height, radius, spatialSigma, rangeSigma, cancelled, onProgress) {
+async function applyBilateral(data, width, height, radius, spatialSigma, rangeSigma, cancelled, onProgress, guideData = data) {
   const out = new Uint8ClampedArray(data.length);
   const lum = new Float32Array(width * height);
+  const guideLum = new Float32Array(width * height);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const offset = (y * width + x) * 4;
       lum[y * width + x] = 0.299 * data[offset] + 0.587 * data[offset + 1] + 0.114 * data[offset + 2];
+      guideLum[y * width + x] = 0.299 * guideData[offset] + 0.587 * guideData[offset + 1] + 0.114 * guideData[offset + 2];
     }
   }
 
@@ -716,7 +762,7 @@ async function applyBilateral(data, width, height, radius, spatialSigma, rangeSi
     }
     for (let x = 0; x < width; x += 1) {
       const pixel = (y * width + x) * 4;
-      const centerLum = lum[y * width + x];
+      const centerLum = guideLum[y * width + x];
       let weightTotal = 0;
       let sumR = 0;
       let sumG = 0;
@@ -728,7 +774,7 @@ async function applyBilateral(data, width, height, radius, spatialSigma, rangeSi
           const xx = x + dx;
           if (xx < 0 || xx >= width) continue;
           const neighborOffset = (yy * width + xx) * 4;
-          const luminanceDiff = centerLum - lum[yy * width + xx];
+          const luminanceDiff = centerLum - guideLum[yy * width + xx];
           const weight = spatialWeights[(dy + half) * size + dx + half]
             * Math.exp(-(luminanceDiff * luminanceDiff) / rangeDenom);
           weightTotal += weight;
@@ -823,6 +869,176 @@ async function applyNlm(data, width, height, patchRadius, searchRadius, h, cance
     }
   }
   return out;
+}
+
+async function applyGuided(data, width, height, radius, epsilon, cancelled, onProgress) {
+  const pixels = width * height;
+  const guide = new Float32Array(pixels);
+  for (let i = 0; i < pixels; i += 1) {
+    const offset = i * 4;
+    guide[i] = (0.299 * data[offset] + 0.587 * data[offset + 1] + 0.114 * data[offset + 2]) / 255;
+  }
+
+  const meanGuide = boxMean(guide, width, height, radius);
+  const meanGuideSquared = boxMean(guide, width, height, radius, (value) => value * value);
+  const variance = new Float32Array(pixels);
+  for (let i = 0; i < pixels; i += 1) {
+    variance[i] = Math.max(0, meanGuideSquared[i] - meanGuide[i] * meanGuide[i]);
+  }
+
+  const out = new Uint8ClampedArray(data.length);
+  for (let channel = 0; channel < 3; channel += 1) {
+    if (cancelled()) return null;
+    const input = new Float32Array(pixels);
+    for (let i = 0; i < pixels; i += 1) input[i] = data[i * 4 + channel] / 255;
+    const meanInput = boxMean(input, width, height, radius);
+    const meanGuideInput = boxMean(input, width, height, radius, (value, index) => value * guide[index]);
+    const a = new Float32Array(pixels);
+    const b = new Float32Array(pixels);
+    for (let i = 0; i < pixels; i += 1) {
+      a[i] = (meanGuideInput[i] - meanGuide[i] * meanInput[i]) / (variance[i] + Math.max(0.000001, epsilon));
+      b[i] = meanInput[i] - a[i] * meanGuide[i];
+    }
+    const meanA = boxMean(a, width, height, radius);
+    const meanB = boxMean(b, width, height, radius);
+    for (let i = 0; i < pixels; i += 1) out[i * 4 + channel] = clampByte((meanA[i] * guide[i] + meanB[i]) * 255);
+    onProgress((channel + 1) / 3);
+    await nextFrame();
+  }
+  for (let i = 0; i < pixels; i += 1) out[i * 4 + 3] = data[i * 4 + 3];
+  return out;
+}
+
+function boxMean(values, width, height, radius, transform) {
+  const stride = width + 1;
+  const integral = new Float64Array((width + 1) * (height + 1));
+  const output = new Float32Array(width * height);
+  const map = transform || ((value) => value);
+  for (let y = 0; y < height; y += 1) {
+    let rowSum = 0;
+    const row = (y + 1) * stride;
+    const previous = y * stride;
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      rowSum += map(values[index], index);
+      integral[row + x + 1] = integral[previous + x + 1] + rowSum;
+    }
+  }
+  for (let y = 0; y < height; y += 1) {
+    const y0 = Math.max(0, y - radius);
+    const y1 = Math.min(height - 1, y + radius);
+    for (let x = 0; x < width; x += 1) {
+      const x0 = Math.max(0, x - radius);
+      const x1 = Math.min(width - 1, x + radius);
+      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+      output[y * width + x] = (
+        integral[(y1 + 1) * stride + x1 + 1]
+        - integral[y0 * stride + x1 + 1]
+        - integral[(y1 + 1) * stride + x0]
+        + integral[y0 * stride + x0]
+      ) / area;
+    }
+  }
+  return output;
+}
+
+async function applyWls(data, width, height, lambda, alpha, iterations, cancelled, onProgress) {
+  const out = new Uint8ClampedArray(data);
+  const guide = new Float32Array(width * height);
+  for (let i = 0; i < guide.length; i += 1) {
+    const offset = i * 4;
+    guide[i] = 0.299 * data[offset] + 0.587 * data[offset + 1] + 0.114 * data[offset + 2];
+  }
+  const strength = Math.max(0.05, lambda) * 0.55;
+  for (let pass = 0; pass < iterations; pass += 1) {
+    if (cancelled()) return null;
+    const next = new Uint8ClampedArray(out);
+    for (let y = 0; y < height; y += 1) {
+      if ((y & 7) === 0) {
+        if (cancelled()) return null;
+        await nextFrame();
+      }
+      for (let x = 0; x < width; x += 1) {
+        const index = y * width + x;
+        const offset = index * 4;
+        let weightTotal = 1;
+        const sums = [out[offset], out[offset + 1], out[offset + 2]];
+        const neighbors = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+        for (const [nx, ny] of neighbors) {
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const neighborIndex = ny * width + nx;
+          const neighborOffset = neighborIndex * 4;
+          const gradient = Math.abs(guide[index] - guide[neighborIndex]);
+          const weight = strength / Math.pow(gradient + 0.01, Math.max(0.5, alpha));
+          weightTotal += weight;
+          sums[0] += out[neighborOffset] * weight;
+          sums[1] += out[neighborOffset + 1] * weight;
+          sums[2] += out[neighborOffset + 2] * weight;
+        }
+        next[offset] = clampByte(sums[0] / weightTotal);
+        next[offset + 1] = clampByte(sums[1] / weightTotal);
+        next[offset + 2] = clampByte(sums[2] / weightTotal);
+      }
+    }
+    out.set(next);
+    onProgress((pass + 1) / iterations);
+  }
+  return out;
+}
+
+async function applyL0(data, width, height, lambda, iterations, cancelled, onProgress) {
+  const out = new Uint8ClampedArray(data);
+  const threshold = Math.sqrt(Math.max(0.0001, lambda)) * 255;
+  for (let pass = 0; pass < iterations; pass += 1) {
+    if (cancelled()) return null;
+    const next = new Uint8ClampedArray(out);
+    for (let y = 0; y < height; y += 1) {
+      if ((y & 7) === 0) {
+        if (cancelled()) return null;
+        await nextFrame();
+      }
+      for (let x = 0; x < width; x += 1) {
+        const index = y * width + x;
+        const offset = index * 4;
+        let totalGradient = 0;
+        let neighborCount = 0;
+        const neighbors = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+        for (const [nx, ny] of neighbors) {
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const n = (ny * width + nx) * 4;
+          totalGradient += Math.abs((0.299 * out[offset] + 0.587 * out[offset + 1] + 0.114 * out[offset + 2])
+            - (0.299 * out[n] + 0.587 * out[n + 1] + 0.114 * out[n + 2]));
+          neighborCount += 1;
+        }
+        if (neighborCount && totalGradient / neighborCount < threshold) {
+          for (let channel = 0; channel < 3; channel += 1) {
+            let sum = out[offset + channel];
+            for (const [nx, ny] of neighbors) {
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height) sum += out[(ny * width + nx) * 4 + channel];
+            }
+            next[offset + channel] = clampByte(sum / (neighborCount + 1));
+          }
+        }
+      }
+    }
+    out.set(next);
+    onProgress((pass + 1) / iterations);
+  }
+  return out;
+}
+
+async function applyRollingGuidance(data, width, height, sigmaSpatial, sigmaRange, iterations, cancelled, onProgress) {
+  let guide = await applyGaussian(data, width, height, 2, Math.max(0.8, sigmaSpatial), cancelled, (progress) => onProgress(progress * 0.2));
+  if (!guide) return null;
+  for (let pass = 0; pass < iterations; pass += 1) {
+    if (cancelled()) return null;
+    const result = await applyBilateral(data, width, height, 2, sigmaSpatial, sigmaRange, cancelled, (progress) => {
+      onProgress(0.2 + ((pass + progress) / iterations) * 0.8);
+    }, guide);
+    if (!result) return null;
+    guide = result;
+  }
+  return guide;
 }
 
 function drawHistogram() {

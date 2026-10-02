@@ -8,6 +8,7 @@
   <script src="app.js" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#workbenchMain">Skip to workbench</a>
   <div class="app">
     <header class="topbar">
       <div class="brand-block">
@@ -22,7 +23,7 @@
         </div>
       </div>
       <div class="top-actions">
-        <div class="run-chip" id="statusChip">
+        <div class="run-chip" id="statusChip" role="status" aria-live="polite">
           <span class="status-dot"></span>
           <span id="statusText">Ready</span>
         </div>
@@ -31,7 +32,7 @@
       </div>
     </header>
 
-    <main class="workbench">
+    <main class="workbench" id="workbenchMain">
       <aside class="sidebar" aria-label="Controls">
         <section class="panel-section">
           <div class="section-heading">
@@ -111,6 +112,26 @@
               <span class="algo-name">NLM</span>
               <span class="algo-code">N</span>
             </label>
+            <label class="algo-option" title="Guided image filter">
+              <input type="radio" name="algorithm" value="guided">
+              <span class="algo-name">Guided</span>
+              <span class="algo-code">Gi</span>
+            </label>
+            <label class="algo-option" title="Weighted least squares smoothing">
+              <input type="radio" name="algorithm" value="wls">
+              <span class="algo-name">WLS</span>
+              <span class="algo-code">W</span>
+            </label>
+            <label class="algo-option" title="L0 gradient minimization smoothing">
+              <input type="radio" name="algorithm" value="l0">
+              <span class="algo-name">L0 smooth</span>
+              <span class="algo-code">L0</span>
+            </label>
+            <label class="algo-option" title="Rolling guidance filter">
+              <input type="radio" name="algorithm" value="rolling">
+              <span class="algo-name">Rolling</span>
+              <span class="algo-code">RG</span>
+            </label>
           </div>
           <div class="control-stack" id="paramPanel"></div>
           <div class="action-row">
@@ -131,9 +152,9 @@
               <button class="active" type="button" data-view="side">Side by side</button>
               <button type="button" data-view="metrics">Metrics</button>
             </div>
-            <label class="zoom-control">
+            <label class="zoom-control" title="Adjust preview scale">
               <span id="zoomValue">100%</span>
-              <input id="zoomRange" type="range" min="60" max="160" step="5" value="100">
+              <input id="zoomRange" aria-label="Preview scale" type="range" min="60" max="160" step="5" value="100">
             </label>
           </div>
         </div>
@@ -224,7 +245,7 @@
           </div>
         </div>
 
-        <div class="viewer-footer">
+        <div class="viewer-footer" aria-live="polite">
           <span id="imageInfo">Demo room &middot; 512&times;512</span>
           <span id="stateInfo">Ready</span>
         </div>
